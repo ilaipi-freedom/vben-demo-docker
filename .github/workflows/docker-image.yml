@@ -1,0 +1,74 @@
+name: Docker Image CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+
+jobs:
+
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      name: Check out Dockerfile
+      with:
+        path: 'deploy'
+
+    - uses: actions/checkout@v3
+      name: Check out vue-vben-admin
+      with:
+        repository: vbenjs/vue-vben-admin
+        path: 'vben'
+
+    - name: Copy the Dockerfile
+      run: |
+        cp deploy/Dockerfile vben/
+
+    - name: Login to Huawei Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ secrets.DOCKER_REGISTRY }}
+        username: ${{ secrets.DOCKER_HUB_USERNAME }}
+        password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+
+    - name: Build and push
+      uses: docker/build-push-action@v4
+      with:
+        context: ./vben
+        push: true
+        tags: ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_HUB_SPACE }}/${{ vars.DOCKER_IMAGE_NAME }}:latest
+
+    -
+      name: Tailscale
+      uses: tailscale/github-action@v2
+      with:
+        oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+        oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+        tags: tag:ci
+
+    - name: executing remote ssh commands using ssh key
+      uses: appleboy/ssh-action@v1.0.0
+      env:
+        INPUT_DOCKER_CONTAINER_NAME: ${{ vars.DOCKER_CONTAINER_NAME }}
+      with:
+        host: ${{ secrets.SSH_HOST_202 }}
+        username: ${{ secrets.SSH_USERNAME_202 }}
+        key: ${{ secrets.SSH_KEY_202 }}
+        port: ${{ secrets.SSH_PORT_202 }}
+        allenvs: true
+        script: |
+          docker pull ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_HUB_SPACE }}/${{ vars.DOCKER_IMAGE_NAME }}
+
+          if [ "$(docker ps -aq -f name=${INPUT_DOCKER_CONTAINER_NAME})" ]; then
+            docker rm -f ${INPUT_DOCKER_CONTAINER_NAME}
+          fi
+
+          docker run -dit --network freedom \
+            --name ${vars.INPUT_DOCKER_CONTAINER_NAME} \
+            -p 
+            --restart always \
+            ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.DOCKER_HUB_SPACE }}/${{ vars.DOCKER_IMAGE_NAME }}
